@@ -1,0 +1,4 @@
+interface:
+  display_name: "Previz Maker"
+  short_description: "情景の一文やショットリストから箱と球のプレビズ、Seedance用プロンプト、ショット表を作る"
+  default_prompt: "Use $previz-maker to turn the scene description into previz.html, seedance-prompt.txt, and shots.md under the work's previz/NN_<slug>/ folder, asking at most four questions and using defaults otherwise."

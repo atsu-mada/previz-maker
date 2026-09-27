@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Block Previz</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; color: #eee; font-family: system-ui, sans-serif; }
+  #stage { position: relative; margin: 0 auto; background: #000; }
+  #stage canvas { width: 100%; height: 100%; display: block; }
+  .hud { position: absolute; top: 12px; font: 600 13px/1 ui-monospace, monospace; background: rgba(0,0,0,.55); padding: 6px 8px; letter-spacing: .08em; }
+  #tag { left: 14px; letter-spacing: .25em; }
+  #beat { right: 14px; font-weight: 400; }
+  #bar { display: flex; gap: 12px; align-items: center; justify-content: center; height: 56px; }
+  button { font: inherit; background: #2a2a2a; color: #eee; border: 1px solid #555; border-radius: 6px; padding: 6px 14px; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #time { font: 14px ui-monospace, monospace; min-width: 9ch; text-align: center; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="tag" class="hud">PREVIZ</div>
+  <div id="beat" class="hud"></div>
+</div>
+<div id="bar">
+  <button id="play">再生</button>
+  <span id="time"></span>
+  <button id="rec">参照用に録画</button>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+// =====================================================================
+// SCENE — 新しいシーンではこのブロックだけを書き換える
+//   座標: x = 左右, y = 高さ, z = 奥行き（メートル）。人は約1.8m。
+//   camera state:
+//     絶対  { pos:[x,y,z], target:[x,y,z], fov }
+//     追従  { follow:'赤', offset:[x,y,z], aim:[x,y,z], fov }       // 頭の中心からの相対
+//           fov の代わりに viewHeight（縦に写す高さm）を書くと、距離から画角を自動計算（望遠圧縮向け）
+//   beat.move は表示用ラベル: 固定 / プッシュイン / 横追従 / 引き
+//   beat の任意項目: to 省略 = from のまま / sky = そのカットだけ空の色 / fade = 'in' | 'out' | 'black' / whip = true で素早く振る
+//   人の keys = [秒, x, z, 向き度|null, 足元y(省略可)]。座る・起き上がる・場所の瞬間移動もこれで書く
+//   props（動く小道具）= { type:'box'|'ball', 寸法, c, keys:[[秒,x,y,z],...], show:[出る秒, 消える秒] }
+//   timeOffset: 再生0秒を SCENE 内の何秒に当てるか（既存シーンの動きを流用するループ用）
+// =====================================================================
+const SCENE = {
+  slug: 'street-walk',
+  duration: 15,                 // 整数秒、最大30
+  aspect: '16:9',               // '16:9' | '9:16' | '1:1'
+  sky: 0xb9c0c7,
+  fog: [35, 95],
+
+  // 場所: plane / box / ball のみ。合計20個まで
+  location: [
+    { type: 'plane', w: 60, d: 200, c: 0x4a4d52, x: 0, z: -10 },                 // 車道
+    { type: 'box', w: 4, h: 0.15, d: 200, c: 0x8c8f92, x: 6, y: 0.075, z: -10 },  // 右歩道
+    { type: 'box', w: 4, h: 0.15, d: 200, c: 0x8c8f92, x: -6, y: 0.075, z: -10 }, // 左歩道
+    ...[12, 18, 9, 22, 14, 10].map((h, i) => ({ type: 'box', w: 4, h, d: 16, c: 0x8e9398, x: 10, y: h / 2, z: -55 + i * 18 })),
+    ...[22, 14, 10, 12, 18, 9].map((h, i) => ({ type: 'box', w: 4, h, d: 16, c: 0x979a9e, x: -10, y: h / 2, z: -49 + i * 18 })),
+    { type: 'ball', r: 1.2, c: 0x6f8a6a, x: 7.4, y: 3.3, z: -20 },
+    { type: 'ball', r: 1.2, c: 0x6f8a6a, x: 7.4, y: 3.3, z: 14 },
+    { type: 'ball', r: 1.2, c: 0x6f8a6a, x: -7.4, y: 3.3, z: -8 },
+    { type: 'ball', r: 1.2, c: 0x6f8a6a, x: -7.4, y: 3.3, z: 24 },
+  ],
+
+  // 登場: 最大3体。keys = [秒, x, z, 向き度(省略可)]。向き省略時は進行方向。0度 = +z を向く
+  actors: [
+    { name: '赤', color: 0xd62828, y: 0.15, keys: [[0, 5.2, 8], [15, 5.2, -11.5]] },
+  ],
+
+  // 群衆（灰）: z 方向に一定速度で歩く。v<0 は -z へ
+  extras: [
+    { x: 7.0, z0: -4, v: 1.2, y: 0.15 }, { x: 7.0, z0: 14, v: 1.0, y: 0.15 }, { x: 6.8, z0: -20, v: 1.3, y: 0.15 },
+    { x: 5.6, z0: 14, v: -1.1, y: 0.15 }, { x: 4.8, z0: 21, v: -1.2, y: 0.15 },
+    { x: -5.2, z0: 0, v: 1.2, y: 0.15 }, { x: -6.6, z0: 10, v: -1.1, y: 0.15 }, { x: -5.6, z0: -15, v: 1.0, y: 0.15 },
+    { x: -6.8, z0: 25, v: -1.3, y: 0.15 }, { x: -5.0, z0: -30, v: 1.4, y: 0.15 },
+  ],
+
+  // 車（暗い灰の箱）: z 方向に走り、wrap 範囲でループ
+  vehicles: [
+    { x: -2, z0: -50, v: 9 }, { x: -2, z0: -5, v: 9 }, { x: 2, z0: 30, v: -8 }, { x: 2, z0: -20, v: -8 },
+  ],
+  vehicleWrap: [-90, 70],
+
+  // ビート: 0秒から隙間なく duration まで。1ビート1カメラ移動
+  beats: [
+    { t0: 0, t1: 3, move: '固定', label: '引き（街の俯瞰）',
+      from: { pos: [-4, 10, 34], target: [3, 1, 2], fov: 50 },
+      to:   { pos: [-4, 10, 34], target: [3, 1, 2], fov: 50 } },
+    { t0: 3, t1: 7, move: 'プッシュイン', label: '赤のドアップへ',
+      from: { pos: [-4, 10, 34], target: [3, 1, 2], fov: 50 },
+      to:   { follow: '赤', offset: [-1.15, 0, -1.64], aim: [-0.35, -0.2, 0], fov: 35 } },
+    { t0: 7, t1: 10, move: '横追従', label: '赤が画面中央・正面',
+      from: { follow: '赤', offset: [-1.15, 0, -1.64], aim: [-0.35, -0.2, 0], fov: 35 },
+      to:   { follow: '赤', offset: [0, 0, -2.0], aim: [0, -0.2, 0], fov: 35 } },
+    { t0: 10, t1: 15, move: '引き', label: '望遠圧縮（正面）',
+      from: { follow: '赤', offset: [0, 0, -2.0], aim: [0, -0.2, 0], viewHeight: 1.26 },
+      to:   { follow: '赤', offset: [0, 0, -14], aim: [0, -0.55, 0], viewHeight: 1.8 } },
+  ],
+};
+// =====================================================================
+
+const OFF = SCENE.timeOffset ?? 0;          // SCENE 内の時刻 = 再生秒 + OFF（別シーンの動きを流用するとき用）
+const DUR = SCENE.duration;
+const [W, H] = { '16:9': [1280, 720], '9:16': [720, 1280], '1:1': [1080, 1080] }[SCENE.aspect];
+const stage = document.getElementById('stage');
+stage.style.aspectRatio = `${W} / ${H}`;
+stage.style.width = `min(100vw, calc((100vh - 56px) * ${W / H}))`;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H, false);
+stage.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(SCENE.sky);
+scene.fog = new THREE.Fog(SCENE.sky, ...SCENE.fog);
+const camera = new THREE.PerspectiveCamera(50, W / H, 0.05, 300);
+scene.add(camera);
+const LIGHT = SCENE.light ?? 1;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x50555a, 1.1 * LIGHT));
+const sun = new THREE.DirectionalLight(0xffffff, 1.1 * LIGHT);
+sun.position.set(-20, 40, 10);
+scene.add(sun);
+
+const mat = (c, opacity = 1) => new THREE.MeshLambertMaterial({ color: c, transparent: opacity < 1, opacity });
+function add(geo, c, x = 0, y = 0, z = 0, opacity = 1) {
+  const m = new THREE.Mesh(geo, mat(c, opacity)); m.position.set(x, y, z); scene.add(m); return m;
+}
+const geoOf = o => o.type === 'plane' ? new THREE.PlaneGeometry(o.w, o.d)
+  : o.type === 'ball' ? new THREE.SphereGeometry(o.r, 20, 14)
+  : new THREE.BoxGeometry(o.w, o.h, o.d);
+for (const o of SCENE.location.slice(0, 20)) {
+  const m = add(geoOf(o), o.c, o.x, o.y ?? 0, o.z, o.opacity ?? 1);
+  if (o.type === 'plane') m.rotation.x = -Math.PI / 2;
+}
+
+// 人: 箱の胴＋球の頭だけ
+function person(c) {
+  const g = new THREE.Group();
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.85, 0.3), mat(c)); torso.position.y = 1.0; g.add(torso);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 20, 14), mat(c)); head.position.y = 1.62; g.add(head);
+  scene.add(g); return g;
+}
+const actors = SCENE.actors.slice(0, 3).map(a => ({ ...a, mesh: person(a.color) }));
+const extras = (SCENE.extras ?? []).map((e, i) => ({ ...e, mesh: person(e.c ?? (i % 2 ? 0x8a8a8a : 0x6e6e6e)), phase: i * 0.7 }));
+const vehicles = (SCENE.vehicles ?? []).map((v, i) => ({ ...v, mesh: add(new THREE.BoxGeometry(1.8, 1.3, 4.2), [0x5b6470, 0x3f444a, 0x6e6e78, 0x50555c][i % 4], v.x, 0.65, 0) }));
+const props = (SCENE.props ?? []).map(p => ({ ...p, mesh: add(geoOf(p), p.c, 0, 0, 0, p.opacity ?? 1) }));
+const [WMIN, WMAX] = SCENE.vehicleWrap ?? [-90, 70];
+const wrap = z => ((z - WMIN) % (WMAX - WMIN) + (WMAX - WMIN)) % (WMAX - WMIN) + WMIN;
+
+// keys を線形補間。人: [秒, x, z, 向き度|null, 足元y(省略可)]
+function walkerState(o, t) {
+  const k = o.keys;
+  let i = k.findIndex(p => p[0] > t);
+  if (i === -1) i = k.length;
+  const p0 = k[Math.max(0, i - 1)], p1 = k[Math.min(k.length - 1, i)];
+  const u = p1[0] === p0[0] ? 0 : Math.min(1, (t - p0[0]) / (p1[0] - p0[0]));
+  const lerp = (a, b) => a + (b - a) * u;
+  const baseY = o.y ?? 0;
+  const dist = Math.hypot(p1[1] - p0[1], p1[2] - p0[2]);
+  const moving = p0 !== p1 && dist / Math.max(1e-3, p1[0] - p0[0]) > 0.2;
+  let heading = 0;                                  // 直近の明示向き、なければ直近の進行方向
+  for (let j = 0; j <= Math.max(0, i - 1) && j < k.length; j++) {
+    const q0 = k[j], q1 = k[j + 1];
+    if (q0[3] != null) heading = THREE.MathUtils.degToRad(q0[3]);
+    else if (q1 && Math.hypot(q1[1] - q0[1], q1[2] - q0[2]) > 1e-3) heading = Math.atan2(q1[1] - q0[1], q1[2] - q0[2]);
+  }
+  return { x: lerp(p0[1], p1[1]), y: lerp(p0[4] ?? baseY, p1[4] ?? baseY), z: lerp(p0[2], p1[2]), heading, moving };
+}
+// 小道具: [秒, x, y, z]
+function propPos(p, t) {
+  const k = p.keys;
+  let i = k.findIndex(q => q[0] > t);
+  if (i === -1) i = k.length;
+  const p0 = k[Math.max(0, i - 1)], p1 = k[Math.min(k.length - 1, i)];
+  const u = p1[0] === p0[0] ? 0 : Math.min(1, (t - p0[0]) / (p1[0] - p0[0]));
+  return [1, 2, 3].map(n => p0[n] + (p1[n] - p0[n]) * u);
+}
+const headOf = (name, t) => {
+  const a = actors.find(x => x.name === name);
+  const s = walkerState(a, t);
+  return new THREE.Vector3(s.x, s.y + 1.62, s.z);
+};
+
+// カメラ
+const V = a => new THREE.Vector3(...a);
+const ease = u => { u = Math.min(1, Math.max(0, u)); return u * u * (3 - 2 * u); };
+function resolve(s, t) {
+  if (!s.follow) return { pos: V(s.pos), tgt: V(s.target), fov: s.fov, vh: s.viewHeight };
+  const h = headOf(s.follow, t);
+  return { pos: h.clone().add(V(s.offset)), tgt: h.clone().add(V(s.aim)), fov: s.fov, vh: s.viewHeight };
+}
+const fovFrom = (vh, d) => THREE.MathUtils.radToDeg(2 * Math.atan(vh / (2 * d)));
+function cameraAt(t) {
+  const b = SCENE.beats.find(b => t < b.t1) || SCENE.beats.at(-1);
+  const u = (t - b.t0) / (b.t1 - b.t0);
+  const e = ease(b.whip ? u * 3 : u);             // whip: 最初の1/3で振り切るウィップパン
+  const A = resolve(b.from, t), B = resolve(b.to ?? b.from, t);
+  const pos = A.pos.lerp(B.pos, e), tgt = A.tgt.lerp(B.tgt, e);
+  let fov;
+  if (A.vh && B.vh) fov = fovFrom(A.vh + (B.vh - A.vh) * e, pos.distanceTo(tgt));
+  else {
+    const fa = A.fov ?? fovFrom(A.vh, A.pos.distanceTo(A.tgt)), fb = B.fov ?? fovFrom(B.vh, B.pos.distanceTo(B.tgt));
+    fov = fa + (fb - fa) * e;
+  }
+  camera.position.copy(pos); camera.lookAt(tgt);
+  camera.fov = fov; camera.updateProjectionMatrix();
+  return { b, e };
+}
+
+// 暗転・フェード: カメラ前の黒板（canvas に入る）
+const veil = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthTest: false, fog: false }));
+veil.position.z = -0.1; veil.renderOrder = 999; camera.add(veil);
+const veilOpacity = (b, e) => b.fade === 'black' ? 1 : b.fade === 'out' ? e : b.fade === 'in' ? 1 - e : 0;
+
+const bob = (t, phase) => 0.03 * Math.abs(Math.sin((t + phase) * Math.PI * 1.8));
+function renderAt(pt) {
+  const t = pt + OFF;
+  for (const a of actors) {
+    const s = walkerState(a, t);
+    a.mesh.position.set(s.x, s.y + (s.moving ? bob(t, 0) : 0), s.z);
+    a.mesh.rotation.y = s.heading;
+  }
+  for (const e of extras) {
+    if (e.keys) {
+      const s = walkerState(e, t);
+      e.mesh.position.set(s.x, s.y + (s.moving ? bob(t, e.phase) : 0), s.z);
+      e.mesh.rotation.y = s.heading;
+    } else {
+      e.mesh.position.set(e.x, (e.y ?? 0) + bob(t, e.phase), e.z0 + e.v * t);
+      e.mesh.rotation.y = e.v < 0 ? Math.PI : 0;
+    }
+  }
+  for (const v of vehicles) v.mesh.position.z = wrap(v.z0 + v.v * t);
+  for (const p of props) {
+    p.mesh.position.set(...propPos(p, t));
+    p.mesh.visible = !p.show || (t >= p.show[0] && t < p.show[1]);
+  }
+  const { b, e } = cameraAt(t);
+  const sky = b.sky ?? SCENE.sky;
+  scene.background.setHex(sky); scene.fog.color.setHex(sky);
+  veil.material.opacity = veilOpacity(b, e);
+  renderer.render(scene, camera);
+  timeEl.textContent = `${pt.toFixed(1)} / ${DUR}s`;
+  beatEl.textContent = `${+(b.t0 - OFF).toFixed(2)}-${+(b.t1 - OFF).toFixed(2)}s ${b.move}｜${b.label}`;
+}
+
+// 再生・録画
+const playBtn = document.getElementById('play');
+const recBtn = document.getElementById('rec');
+const timeEl = document.getElementById('time');
+const beatEl = document.getElementById('beat');
+let t = 0, playing = false, last = 0, recorder = null;
+
+function setPlaying(p) { playing = p; last = performance.now(); playBtn.textContent = p ? '一時停止' : '再生'; }
+playBtn.onclick = () => { if (!playing && t >= DUR) t = 0; setPlaying(!playing); };
+
+recBtn.onclick = () => {
+  const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find(m => MediaRecorder.isTypeSupported(m));
+  const chunks = [];
+  recorder = new MediaRecorder(renderer.domElement.captureStream(30), { mimeType: mime, videoBitsPerSecond: 8e6 });
+  recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+  recorder.onstop = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }));
+    a.download = `${SCENE.slug}-previz.webm`;
+    a.click();
+    recorder = null;
+    recBtn.disabled = playBtn.disabled = false;
+    recBtn.textContent = '参照用に録画';
+  };
+  t = 0; renderAt(0);
+  recorder.start();
+  recBtn.disabled = playBtn.disabled = true;
+  recBtn.textContent = '録画中…';
+  setPlaying(true);
+};
+
+function tick(now) {
+  if (playing) {
+    t = Math.min(DUR, t + (now - last) / 1000);
+    last = now;
+    if (t >= DUR) {
+      setPlaying(false);
+      if (recorder) { renderAt(DUR); setTimeout(() => recorder.stop(), 150); }
+    }
+  }
+  renderAt(t);
+  requestAnimationFrame(tick);
+}
+window.previzSeek = s => { setPlaying(false); t = Math.min(DUR, Math.max(0, s)); renderAt(t); };  // 確認用: コンソールから秒指定
+renderAt(0);
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "atsu-mada-previz-maker",
+  "description": "previz-maker agent skill by atsu-mada",
+  "owner": {
+    "name": "atsu-mada",
+    "url": "https://github.com/atsu-mada"
+  },
+  "plugins": [
+    {
+      "name": "previz-maker",
+      "source": "./",
+      "description": "Turn a one-line scene or shot list into a playable boxes-and-spheres Three.js previz, a Seedance reference prompt, and a shot table."
+    }
+  ]
+}

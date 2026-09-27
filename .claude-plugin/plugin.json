@@ -1,0 +1,22 @@
+{
+  "name": "previz-maker",
+  "version": "1.0.0",
+  "description": "Turn a one-line scene or shot list into a playable boxes-and-spheres Three.js previz, a Seedance reference prompt, and a shot table. Planning and prompts only; no media generation.",
+  "author": {
+    "name": "atsu-mada (ATSUFUMI KASHIMA)",
+    "url": "https://github.com/atsu-mada"
+  },
+  "homepage": "https://github.com/atsu-mada/previz-maker",
+  "repository": "https://github.com/atsu-mada/previz-maker",
+  "license": "MIT",
+  "keywords": [
+    "previz",
+    "three.js",
+    "camera-blocking",
+    "seedance",
+    "ai-video"
+  ],
+  "skills": [
+    "./"
+  ]
+}
