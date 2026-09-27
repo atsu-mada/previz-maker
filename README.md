@@ -51,7 +51,7 @@ git clone https://github.com/atsu-mada/previz-maker.git ~/.codex/skills/previz-m
 ## 関連スキル
 
 - [ai-video-production](https://github.com/atsu-mada/ai-video-production) — 企画、参照シート、絵コンテ、カットプロンプトを作る前工程
-- [seedance-2.0](https://github.com/atsu-mada/seedance-2.0) — Seedance のプロンプト作成（Emily2040/seedance-2.0 の改変フォーク）
+- [seedance-studio](https://github.com/atsu-mada/seedance-studio) — Seedance 2.5 のプロンプト作成（Emily2040/seedance-2.0 の改変フォーク）
 
 ## 制限
 
