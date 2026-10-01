@@ -1,49 +1,51 @@
 # previz-maker
 
-情景の一文、またはショットリストから、AI 動画生成（Seedance など）に渡す「動く参照」＝ブロックプレビズを作るエージェントスキルです。Claude Code と Codex で使えます。
+English · [日本語](README.ja.md)
 
-作者: あつまだ（ATSUFUMI KASHIMA） / GitHub [@atsu-mada](https://github.com/atsu-mada)
+An agent skill that turns a one-line scene description or a shot list into a **block previz**: a moving reference to hand to AI video generation (Seedance and similar). Works with Claude Code and Codex.
 
-## できること
+Author: atsu_mada (ATSUFUMI KASHIMA) / GitHub [@atsu-mada](https://github.com/atsu-mada)
 
-毎回、次の3ファイルを作ります。
+## What it does
 
-| ファイル | 中身 |
+Every run produces these three files.
+
+| File | Contents |
 | --- | --- |
-| `previz.html` | 箱と球だけの Three.js プレビズ。ブラウザで再生し、webm として録画できます |
-| `seedance-prompt.txt` | 録画したプレビズを参照動画として渡すためのプロンプト |
-| `shots.md` | ビートごとの画角・動作・カメラ・終了状態の表 |
+| `previz.html` | A Three.js previz made only of boxes and spheres. Plays in the browser and can be recorded as webm |
+| `seedance-prompt.txt` | A prompt for passing the recorded previz as a reference video |
+| `shots.md` | A per-beat table of framing, action, camera, and end state |
 
-見た目の完成度は追わず、カメラ、動線、立ち位置、タイミングだけを伝えます。
+It does not aim for a finished look. It conveys camera, movement paths, positions, and timing only.
 
-確認が済んだら、同梱の `scripts/render.mjs` で `previz.mp4` を書き出します。ヘッドレス Chrome で `previzSeek(秒)` を1フレームずつ呼んで描くので、尺とフレーム数が SCENE と正確に一致します（実時間の webm 録画も予備として残っています）。
+Once you have checked the previz, export `previz.mp4` with the bundled `scripts/render.mjs`. It calls `previzSeek(seconds)` frame by frame in headless Chrome, so the duration and frame count match the SCENE exactly (real-time webm recording remains available as a fallback).
 
 ```bash
-node scripts/render.mjs <previz フォルダ> [--fps 24] [--size 1280x720]
+node scripts/render.mjs <previz-dir> [--fps 24] [--size 1280x720]
 ```
 
-テンプレートは既存の SCENE をそのまま動かしたまま、次の任意項目を使えます: 描画距離 `SCENE.far`（大きな球は自動で滑らかに描画）、白フェード `white` / `white-hold`、照明なしの単色 `basic: true`、ビートごとの進み方 `curve`、全面の色板 `SCENE.veil`、回り込み用の関数カメラ `beat.cam(t)`、ビート間の空の色の補間 `skyBlend`（既定はハードカット）。回り込み、スケールリビール、色によるマッチ転換などの汎用技法は SKILL.md にあります。
+Existing SCENE blocks keep working unchanged, and the template adds these optional features: draw distance `SCENE.far` (large spheres are drawn smoothly automatically), white fades `white` / `white-hold`, unlit flat colour `basic: true`, per-beat easing `curve`, a full-screen colour plate `SCENE.veil`, a function camera `beat.cam(t)` for orbits, and sky-colour interpolation between beats `skyBlend` (hard cuts by default). General techniques such as orbits, scale reveals, and colour match transitions are described in SKILL.md.
 
-できた previz はスイートに依存しません。選んだスイートオペレーター（例: magnific-operator、tapnow-chrome-operator）が `@Video 1` として参照に上げます。利用者が previz を見て OK を出すまで、有料の生成には進みません。
+The previz does not depend on any suite. The suite operator you choose (for example magnific-operator or tapnow-chrome-operator) uploads it as the `@Video 1` reference. Paid generation does not start until the user has watched the previz and approved it.
 
-## インストール
+## Install
 
-### Claude Code（プラグイン）
+### Claude Code (plugin)
 
 ```
 /plugin marketplace add atsu-mada/previz-maker
 /plugin install previz-maker@atsu-mada-previz-maker
 ```
 
-`/previz-maker:previz-maker` で呼び出せます。
+Invoke with `/previz-maker:previz-maker`.
 
-### Claude Code（手動）
+### Claude Code (manual)
 
 ```bash
 git clone https://github.com/atsu-mada/previz-maker.git ~/.claude/skills/previz-maker
 ```
 
-`/previz-maker` で呼び出せます。
+Invoke with `/previz-maker`.
 
 ### Codex
 
@@ -51,43 +53,29 @@ git clone https://github.com/atsu-mada/previz-maker.git ~/.claude/skills/previz-
 git clone https://github.com/atsu-mada/previz-maker.git ~/.codex/skills/previz-maker
 ```
 
-`$previz-maker` で呼び出せます。
+Invoke with `$previz-maker`.
 
-### 必要なもの
+### Requirements
 
-- モダンブラウザ。Three.js は CDN（jsDelivr）から読み込みます。
-- 確認用に `python3 -m http.server` を使います。
-- mp4 書き出し（`scripts/render.mjs`）には次が必要です。
-  - Node.js 22 以上（標準の fetch と WebSocket を使うので npm パッケージは不要）
-  - Google Chrome または Chromium（見つからないときは `--chrome <パス>` か環境変数 `CHROME_PATH`）
-  - ffmpeg（PATH 上、または環境変数 `FFMPEG`）。コンタクトシートの時刻表示には drawtext（freetype 付きのビルド）
-  - 任意: `puppeteer-core` か `playwright` が import できればそちらを使い、無ければ Chrome DevTools Protocol を直接使います
+- A modern browser. Three.js is loaded from a CDN (jsDelivr).
+- `python3 -m http.server` for previewing.
+- mp4 export (`scripts/render.mjs`) needs:
+  - Node.js 22 or later (it uses the built-in fetch and WebSocket, so no npm packages are required)
+  - Google Chrome or Chromium (if it is not found, pass `--chrome <path>` or set `CHROME_PATH`)
+  - ffmpeg (on PATH, or set `FFMPEG`). The contact sheet's timestamps need drawtext (a build with freetype)
+  - Optional: `puppeteer-core` or `playwright` is used if importable; otherwise the script talks to the Chrome DevTools Protocol directly
 
-## 関連スキル
+## Related skills
 
-- [ai-video-production](https://github.com/atsu-mada/ai-video-production) — 企画、参照シート、絵コンテ、カットプロンプトを作る前工程
-- [seedance-studio](https://github.com/atsu-mada/seedance-studio) — Seedance 2.5 のプロンプト作成（Emily2040/seedance-2.0 の改変フォーク）
+- [ai-video-production](https://github.com/atsu-mada/ai-video-production) — the earlier stage: planning, reference sheets, storyboards, and cut prompts
+- [seedance-studio](https://github.com/atsu-mada/seedance-studio) — Seedance 2.5 prompt authoring (a modified fork of Emily2040/seedance-2.0)
 
-## 制限
+## Limitations
 
-- プレビズとプロンプトを作るだけです。Seedance などへの投入や動画生成は行いません。
-- 箱と球だけの動き参照です。完成映像の見た目は扱いません。
+- It only creates the previz and the prompt. It does not submit to Seedance or other services, and it does not generate video.
+- It is a motion reference made of boxes and spheres. It does not cover the look of the final footage.
+- The skill instructions (SKILL.md) are written in Japanese.
 
-## ライセンス
+## License
 
 [MIT](LICENSE) © 2026 atsu_mada (ATSUFUMI KASHIMA)
-
----
-
-## English
-
-An agent skill for Claude Code and Codex that turns a one-line scene or a shot list into a playable boxes-and-spheres Three.js previz (`previz.html`, recordable to webm), a Seedance reference prompt, and a shot table. It conveys camera, blocking, and timing only.
-
-- `node scripts/render.mjs <previz-dir> [--fps 24] [--size 1280x720]` renders a frame-exact `previz.mp4` (headless Chrome + `previzSeek(t)` + ffmpeg). Needs Node.js 22+, Chrome/Chromium, and ffmpeg; uses puppeteer-core or playwright if importable, otherwise the Chrome DevTools Protocol directly.
-- Optional template features (existing SCENE blocks keep working): `SCENE.far`, smoother large spheres, `white` / `white-hold` fades, unlit `basic: true` props, per-beat `curve`, full-screen `SCENE.veil`, function camera `beat.cam(t)` for orbits, and `skyBlend` sky-colour interpolation (hard cuts by default).
-- Suite-neutral: the chosen suite operator uploads the previz as `@Video 1`. Paid generation waits for the user's visual approval of the previz.
-
-- Claude Code plugin: `/plugin marketplace add atsu-mada/previz-maker`, then `/plugin install previz-maker@atsu-mada-previz-maker`.
-- Manual: `git clone https://github.com/atsu-mada/previz-maker.git ~/.claude/skills/previz-maker` (or `~/.codex/skills/previz-maker` for Codex).
-
-It never submits to Seedance or generates video. Skill instructions are written in Japanese. License: MIT.
